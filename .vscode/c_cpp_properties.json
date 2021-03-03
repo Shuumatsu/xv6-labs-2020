@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/kernel",
+                "${workspaceFolder}/user",
+                "${workspaceFolder}/mkfs"
+            ],
+            "compilerPath": "riscv64-linux-gnu-gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 4
+}

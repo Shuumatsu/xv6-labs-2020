@@ -3,6 +3,10 @@
         "stat.h": "c",
         "*.tcc": "cpp",
         "fstream": "cpp",
-        "system_error": "cpp"
+        "system_error": "cpp",
+        "fs.h": "c",
+        "user.h": "c",
+        "types.h": "c",
+        "fcntl.h": "c"
     }
 }
