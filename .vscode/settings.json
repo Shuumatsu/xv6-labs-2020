@@ -1,5 +1,8 @@
 {
     "files.associations": {
-        "stat.h": "c"
+        "stat.h": "c",
+        "*.tcc": "cpp",
+        "fstream": "cpp",
+        "system_error": "cpp"
     }
 }
