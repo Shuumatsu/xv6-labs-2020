@@ -622,3 +622,15 @@ void procdump(void) {
         printf("\n");
     }
 }
+
+uint64 count_active_procs(void) {
+    uint64 ret = 0;
+
+    for (struct proc* p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state != UNUSED) { ret += 1; }
+        release(&p->lock);
+    }
+
+    return ret;
+}
