@@ -262,6 +262,8 @@ int fork(void) {
 
     np->state = RUNNABLE;
 
+    np->syscall_mask = p->syscall_mask;
+
     release(&np->lock);
 
     return pid;
