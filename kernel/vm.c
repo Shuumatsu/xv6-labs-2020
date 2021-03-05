@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -105,6 +107,10 @@ void kvmmap(uint64 va, uint64 pa, uint64 sz, int perm) {
     if (mappages(kernel_pagetable, va, sz, pa, perm) != 0) panic("kvmmap");
 }
 
+void ukvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm) {
+    if (mappages(pagetable, va, sz, pa, perm) != 0) panic("ukvmmap");
+}
+
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
@@ -114,7 +120,7 @@ uint64 kvmpa(uint64 va) {
     pte_t* pte;
     uint64 pa;
 
-    pte = walk(kernel_pagetable, va, 0);
+    pte = walk(myproc()->kpagetable, va, 0);
     if (pte == 0) panic("kvmpa");
     if ((*pte & PTE_V) == 0) panic("kvmpa");
     pa = PTE2PA(*pte);
@@ -165,6 +171,10 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free) {
         }
         *pte = 0;
     }
+}
+
+void ukvmunmap(pagetable_t pagetable, uint64 va, uint64 npages) {
+    uvmunmap(pagetable, va, npages, 0);
 }
 
 // create an empty user page table.
