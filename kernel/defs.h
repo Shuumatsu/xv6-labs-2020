@@ -160,7 +160,6 @@ void uartputc_sync(int);
 int uartgetc(void);
 
 // vm.c
-void ukvminit(struct proc* proc);
 void kvminit(void);
 void kvminithart(void);
 uint64 kvmpa(uint64);
@@ -174,6 +173,7 @@ uint64 uvmdealloc(pagetable_t, uint64, uint64);
 #ifdef SOL_COW
 #else
 int uvmcopy(pagetable_t, pagetable_t, uint64);
+int ukvmcopy(pagetable_t, pagetable_t, uint64);
 #endif
 void uvmfree(pagetable_t, uint64);
 void uvmunmap(pagetable_t, uint64, uint64, int);
@@ -227,3 +227,7 @@ int sockread(struct sock*, uint64, int);
 int sockwrite(struct sock*, uint64, int);
 void sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 #endif
+
+// vmcopyin.c
+int copyin_new(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len);
+int copyinstr_new(pagetable_t pagetable, char* dst, uint64 srcva, uint64 max);

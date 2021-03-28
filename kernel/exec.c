@@ -99,6 +99,9 @@ int exec(char* path, char** argv) {
     oldpagetable = p->pagetable;
     p->pagetable = pagetable;
     p->sz = sz;
+
+    if (ukvmcopy(p->pagetable, p->kpagetable, p->sz) == -1) { goto bad; }
+
     p->trapframe->epc = elf.entry;  // initial program counter = main
     p->trapframe->sp = sp;  // initial stack pointer
     proc_freepagetable(oldpagetable, oldsz);

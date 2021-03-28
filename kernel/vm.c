@@ -297,6 +297,23 @@ err:
     return -1;
 }
 
+int ukvmcopy(pagetable_t src, pagetable_t dst, uint64 sz) {
+    for (uint64 i = 0; i < sz; i += PGSIZE) {
+        pte_t* src_pte = walk(src, i, 0);
+        if (src_pte == 0) { panic("ukvmcopy: src_pte should exist"); }
+        if ((*src_pte & PTE_V) == 0) { panic("ukvmcopy: page not present"); }
+
+        pte_t* dst_pte = walk(dst, i, 1);
+        if (dst_pte == 0) { panic("ukvmcopy: dst_pte should exist"); }
+
+        uint64 pa = PTE2PA(*src_pte);
+        uint flags = PTE_FLAGS(*src_pte) & (~PTE_U);
+
+        *dst_pte = PA2PTE(pa) | flags;
+    }
+    return 0;
+}
+
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
 void uvmclear(pagetable_t pagetable, uint64 va) {
@@ -332,21 +349,7 @@ int copyout(pagetable_t pagetable, uint64 dstva, char* src, uint64 len) {
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
 int copyin(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len) {
-    uint64 n, va0, pa0;
-
-    while (len > 0) {
-        va0 = PGROUNDDOWN(srcva);
-        pa0 = walkaddr(pagetable, va0);
-        if (pa0 == 0) return -1;
-        n = PGSIZE - (srcva - va0);
-        if (n > len) n = len;
-        memmove(dst, (void*)(pa0 + (srcva - va0)), n);
-
-        len -= n;
-        dst += n;
-        srcva = va0 + PGSIZE;
-    }
-    return 0;
+    return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -354,38 +357,7 @@ int copyin(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len) {
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
 int copyinstr(pagetable_t pagetable, char* dst, uint64 srcva, uint64 max) {
-    uint64 n, va0, pa0;
-    int got_null = 0;
-
-    while (got_null == 0 && max > 0) {
-        va0 = PGROUNDDOWN(srcva);
-        pa0 = walkaddr(pagetable, va0);
-        if (pa0 == 0) return -1;
-        n = PGSIZE - (srcva - va0);
-        if (n > max) n = max;
-
-        char* p = (char*)(pa0 + (srcva - va0));
-        while (n > 0) {
-            if (*p == '\0') {
-                *dst = '\0';
-                got_null = 1;
-                break;
-            } else {
-                *dst = *p;
-            }
-            --n;
-            --max;
-            p++;
-            dst++;
-        }
-
-        srcva = va0 + PGSIZE;
-    }
-    if (got_null) {
-        return 0;
-    } else {
-        return -1;
-    }
+    return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 void vmprint_helper(int lv, pagetable_t pagetable) {
