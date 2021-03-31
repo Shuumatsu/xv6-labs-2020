@@ -104,3 +104,15 @@ void printfinit(void) {
     initlock(&pr.lock, "pr");
     pr.locking = 1;
 }
+
+void backtrace(void) {
+    uint64 curr = r_fp();
+    uint64 higher = PGROUNDUP(curr);
+    uint64 lower = PGROUNDDOWN(curr);
+    while (curr <= higher && curr >= lower) {
+        uint64 ra = *(uint64*)(curr - 8);
+        uint64 fp = *(uint64*)(curr - 16);
+        printf("%p\n", ra);
+        curr = fp;
+    }
+}
