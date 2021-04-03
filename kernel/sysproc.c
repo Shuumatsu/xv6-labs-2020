@@ -70,3 +70,24 @@ uint64 sys_uptime(void) {
     release(&tickslock);
     return xticks;
 }
+
+uint64 sys_sigalarm(void) {
+    uint64 alarm, alarm_func;
+    if (argaddr(0, &alarm) < 0) return -1;
+    if (argaddr(1, &alarm_func) < 0) return -1;
+
+    struct proc* p = myproc();
+    p->alarm = alarm;
+    p->alarm_func = (void (*)())alarm_func;
+
+    return 0;
+}
+
+uint64 sys_sigreturn(void) {
+    struct proc* p = myproc();
+
+    p->tick = 0;
+    *p->trapframe = p->trapframe_alarm;
+
+    return 0;
+}
