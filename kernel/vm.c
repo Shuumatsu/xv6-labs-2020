@@ -1,8 +1,10 @@
 #include "param.h"
 #include "types.h"
-#include "memlayout.h"
-#include "elf.h"
+#include "spinlock.h"
 #include "riscv.h"
+#include "memlayout.h"
+#include "proc.h"
+#include "elf.h"
 #include "defs.h"
 #include "fs.h"
 
@@ -156,8 +158,8 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free) {
     if ((va % PGSIZE) != 0) panic("uvmunmap: not aligned");
 
     for (a = va; a < va + npages * PGSIZE; a += PGSIZE) {
-        if ((pte = walk(pagetable, a, 0)) == 0) panic("uvmunmap: walk");
-        if ((*pte & PTE_V) == 0) panic("uvmunmap: not mapped");
+        if ((pte = walk(pagetable, a, 0)) == 0) continue;
+        if ((*pte & PTE_V) == 0) continue;
         if (PTE_FLAGS(*pte) == PTE_V) panic("uvmunmap: not a leaf");
         if (do_free) {
             uint64 pa = PTE2PA(*pte);
@@ -269,8 +271,8 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz) {
     char* mem;
 
     for (i = 0; i < sz; i += PGSIZE) {
-        if ((pte = walk(old, i, 0)) == 0) panic("uvmcopy: pte should exist");
-        if ((*pte & PTE_V) == 0) panic("uvmcopy: page not present");
+        if ((pte = walk(old, i, 0)) == 0) continue;
+        if ((*pte & PTE_V) == 0) continue;
         pa = PTE2PA(*pte);
         flags = PTE_FLAGS(*pte);
         if ((mem = kalloc()) == 0) goto err;
@@ -376,4 +378,28 @@ int copyinstr(pagetable_t pagetable, char* dst, uint64 srcva, uint64 max) {
     } else {
         return -1;
     }
+}
+
+int need_alloc(struct proc* p, uint64 addr) {
+    if (addr >= p->sz || addr <= PGROUNDDOWN(p->trapframe->sp)) { return 0; }
+    return 1;
+}
+
+int alloc_page(struct proc* p, uint64 addr) {
+    if (!need_alloc(p, addr)) { return -1; }
+    // Use PGROUNDDOWN(va) to round the faulting virtual address down to
+    // a page boundary.
+    uint64 boundary = PGROUNDDOWN(addr);
+
+    char* mem = kalloc();
+    if (mem == 0) { return -1; }
+    memset(mem, 0, PGSIZE);
+
+    if (mappages(p->pagetable, boundary, PGSIZE, (uint64)mem,
+                 PTE_W | PTE_R | PTE_U) != 0) {
+        kfree(mem);
+        return -1;
+    }
+
+    return 0;
 }

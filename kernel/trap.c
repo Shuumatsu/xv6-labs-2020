@@ -55,6 +55,15 @@ void usertrap(void) {
         syscall();
     } else if ((which_dev = devintr()) != 0) {
         // ok
+    } else if (r_scause() == 13 || r_scause() == 15) {
+        // You can check whether a fault is a page fault by seeing if r_scause()
+        // is 13 or 15 in usertrap().
+
+        // r_stval() returns the RISC-V stval register, which contains the
+        // virtual address that caused the page fault.
+        uint64 addr = r_stval();
+
+        if (alloc_page(p, addr) == -1) { p->killed = 1; }
     } else {
         printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
         printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

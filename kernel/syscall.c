@@ -48,7 +48,14 @@ int argint(int n, int* ip) {
 // Doesn't check for legality, since
 // copyin/copyout will do that.
 int argaddr(int n, uint64* ip) {
-    *ip = argraw(n);
+    uint64 addr = argraw(n);
+
+    struct proc* p = myproc();
+    if (need_alloc(p, addr) && walkaddr(p->pagetable, addr) == 0) {
+        alloc_page(p, addr);
+    }
+
+    *ip = addr;
     return 0;
 }
 
