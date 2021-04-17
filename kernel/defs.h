@@ -60,9 +60,13 @@ void ramdiskintr(void);
 void ramdiskrw(struct buf*);
 
 // kalloc.c
+int is_cow_page(pagetable_t pagetable, uint64 va);
+int cow_alloc(pagetable_t pagetable, uint64 va);
 void* kalloc(void);
 void kfree(void*);
 void kinit(void);
+void inc_cnt(void* pa);
+void dec_cnt(void* pa);
 
 // log.c
 void initlog(int, struct superblock*);
@@ -167,10 +171,12 @@ int uvmcopy(pagetable_t, pagetable_t, uint64);
 void uvmfree(pagetable_t, uint64);
 void uvmunmap(pagetable_t, uint64, uint64, int);
 void uvmclear(pagetable_t, uint64);
+pte_t* walk(pagetable_t pagetable, uint64 va, int alloc);
 uint64 walkaddr(pagetable_t, uint64);
 int copyout(pagetable_t, uint64, char*, uint64);
 int copyin(pagetable_t, char*, uint64, uint64);
 int copyinstr(pagetable_t, char*, uint64, uint64);
+int page_fault_handler(struct proc* p, uint64 va);
 
 // plic.c
 void plicinit(void);

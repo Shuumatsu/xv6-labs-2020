@@ -9,6 +9,11 @@
 #include "riscv.h"
 #include "defs.h"
 
+struct {
+    struct spinlock lock;
+    int cnt[PHYSTOP / PGSIZE];
+} reference_counter;
+
 void freerange(void* pa_start, void* pa_end);
 
 extern char end[];  // first address after kernel.
@@ -23,15 +28,41 @@ struct {
     struct run* freelist;
 } kmem;
 
+void inc_cnt(void* pa) {
+    acquire(&reference_counter.lock);
+    reference_counter.cnt[(uint64)pa / PGSIZE] += 1;
+    release(&reference_counter.lock);
+}
+
+void dec_cnt(void* pa) {
+    acquire(&reference_counter.lock);
+    reference_counter.cnt[(uint64)pa / PGSIZE] -= 1;
+    release(&reference_counter.lock);
+}
+
 void kinit() {
+    initlock(&reference_counter.lock, "reference_counter");
+    for (int i = 0; i < PHYSTOP / PGSIZE; i += 1) {
+        reference_counter.cnt[i] = 0;
+    }
+
     initlock(&kmem.lock, "kmem");
     freerange(end, (void*)PHYSTOP);
 }
 
 void freerange(void* pa_start, void* pa_end) {
-    char* p;
-    p = (char*)PGROUNDUP((uint64)pa_start);
-    for (; p + PGSIZE <= (char*)pa_end; p += PGSIZE) kfree(p);
+    for (char* pa = (char*)PGROUNDUP((uint64)pa_start);
+         pa + PGSIZE <= (char*)pa_end; pa += PGSIZE) {
+        memset(pa, 1, PGSIZE);
+
+        acquire(&kmem.lock);
+
+        struct run* r = (struct run*)pa;
+        r->next = kmem.freelist;
+        kmem.freelist = r;
+
+        release(&kmem.lock);
+    };
 }
 
 // Free the page of physical memory pointed at by v,
@@ -39,19 +70,22 @@ void freerange(void* pa_start, void* pa_end) {
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
 void kfree(void* pa) {
-    struct run* r;
-
     if (((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
         panic("kfree");
 
-    // Fill with junk to catch dangling refs.
-    memset(pa, 1, PGSIZE);
-
-    r = (struct run*)pa;
-
     acquire(&kmem.lock);
-    r->next = kmem.freelist;
-    kmem.freelist = r;
+    acquire(&reference_counter.lock);
+
+    reference_counter.cnt[(uint64)pa / PGSIZE] -= 1;
+
+    if (reference_counter.cnt[(uint64)pa / PGSIZE] == 0) {
+        memset(pa, 1, PGSIZE);
+        struct run* r = (struct run*)pa;
+        r->next = kmem.freelist;
+        kmem.freelist = r;
+    }
+
+    release(&reference_counter.lock);
     release(&kmem.lock);
 }
 
@@ -62,10 +96,36 @@ void* kalloc(void) {
     struct run* r;
 
     acquire(&kmem.lock);
+    acquire(&reference_counter.lock);
+
     r = kmem.freelist;
-    if (r) kmem.freelist = r->next;
+    if (r) {
+        kmem.freelist = r->next;
+        memset((void*)r, 5, PGSIZE);  // fill with junk
+        reference_counter.cnt[(uint64)r / PGSIZE] += 1;
+    }
+
+    release(&reference_counter.lock);
     release(&kmem.lock);
 
-    if (r) memset((char*)r, 5, PGSIZE);  // fill with junk
     return (void*)r;
+}
+
+int cow_alloc(pagetable_t pagetable, uint64 va) {
+    pte_t* pte = walk(pagetable, PGROUNDDOWN(va), 0);
+    if (pte == 0) { return -1; }
+
+    uint64 pa = PTE2PA(*pte);
+    if (pa == 0) { return -1; }
+
+    void* allocated = kalloc();
+    if (allocated == 0) { return -1; }
+
+    memmove(allocated, (void*)pa, PGSIZE);
+
+    uint flags = (PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W;
+    *pte = PA2PTE((uint64)allocated) | flags;
+
+    kfree((void*)pa);
+    return 0;
 }
