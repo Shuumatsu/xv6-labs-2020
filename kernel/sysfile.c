@@ -266,6 +266,34 @@ uint64 sys_open(void) {
             return -1;
         }
         ilock(ip);
+
+        int depth = 0;
+
+        while (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW) && depth < 10) {
+            char target_path[MAXPATH];
+            readi(ip, 0, (uint64)target_path, 0, MAXPATH);
+            iunlockput(ip);
+
+            struct inode* target_inode = namei(target_path);
+            if (target_inode == 0) {
+                end_op();
+                return -1;
+            }
+
+            ip = target_inode;
+            ilock(ip);
+
+            // currently ip may still refer to a symbolic link
+            // symlink(old, new) where old is a symbolic link
+
+            depth += 1;
+        }
+        if (depth == 10) {
+            iunlockput(ip);
+            end_op();
+            return -1;
+        }
+
         if (ip->type == T_DIR && omode != O_RDONLY) {
             iunlockput(ip);
             end_op();
@@ -415,5 +443,30 @@ uint64 sys_pipe(void) {
         fileclose(wf);
         return -1;
     }
+    return 0;
+}
+
+uint64 sys_symlink(void) {
+    char target[MAXPATH], path[MAXPATH];
+    if (argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0) {
+        return -1;
+    }
+
+    begin_op();
+
+    struct inode* new_inode = create(path, T_SYMLINK, 0, 0);
+    if (new_inode == 0) {
+        end_op();
+        return -1;
+    }
+
+    if (writei(new_inode, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+        end_op();
+        return -1;
+    }
+
+    iunlockput(new_inode);
+
+    end_op();
     return 0;
 }
