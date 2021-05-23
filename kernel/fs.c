@@ -341,28 +341,64 @@ void iunlockput(struct inode* ip) {
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
-static uint bmap(struct inode* ip, uint bn) {
-    uint addr, *a;
-    struct buf* bp;
-
-    if (bn < NDIRECT) {
-        if ((addr = ip->addrs[bn]) == 0) ip->addrs[bn] = addr = balloc(ip->dev);
-        return addr;
+static uint bmap(struct inode* ip, uint logic_no) {
+    if (logic_no < NDIRECT) {
+        if (ip->addrs[logic_no] == 0) { ip->addrs[logic_no] = balloc(ip->dev); }
+        return ip->addrs[logic_no];
     }
-    bn -= NDIRECT;
 
-    if (bn < NINDIRECT) {
-        // Load indirect block, allocating if necessary.
-        if ((addr = ip->addrs[NDIRECT]) == 0)
-            ip->addrs[NDIRECT] = addr = balloc(ip->dev);
-        bp = bread(ip->dev, addr);
-        a = (uint*)bp->data;
-        if ((addr = a[bn]) == 0) {
-            a[bn] = addr = balloc(ip->dev);
-            log_write(bp);
+    if (logic_no < NDIRECT + NSINGLELY_INDIRECT) {
+        uint parent_logic_no = logic_no - NDIRECT;
+
+        if (ip->addrs[NDIRECT] == 0) { ip->addrs[NDIRECT] = balloc(ip->dev); }
+        struct buf* parent_buf = bread(ip->dev, ip->addrs[NDIRECT]);
+
+        uint* parent_indexes = (uint*)parent_buf->data;
+
+        if (parent_indexes[parent_logic_no] == 0) {
+            parent_indexes[parent_logic_no] = balloc(ip->dev);
+            log_write(parent_buf);
         }
-        brelse(bp);
-        return addr;
+        uint block_no = parent_indexes[parent_logic_no];
+
+        brelse(parent_buf);
+
+        return block_no;
+    }
+
+    if (logic_no < NDIRECT + NINDIRECT) {
+        uint grandparent_logic_no =
+            (logic_no - (NDIRECT + NSINGLELY_INDIRECT)) /
+            (BSIZE / sizeof(uint));
+        uint parent_logic_no = (logic_no - (NDIRECT + NSINGLELY_INDIRECT)) %
+                               (BSIZE / sizeof(uint));
+
+        if (ip->addrs[NDIRECT + 1] == 0) {
+            ip->addrs[NDIRECT + 1] = balloc(ip->dev);
+        }
+        struct buf* grandparent_buf = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+
+        uint* grandparent_indexes = (uint*)grandparent_buf->data;
+
+        if (grandparent_indexes[grandparent_logic_no] == 0) {
+            grandparent_indexes[grandparent_logic_no] = balloc(ip->dev);
+            log_write(grandparent_buf);
+        }
+
+        uint parent_block_no = grandparent_indexes[grandparent_logic_no];
+        struct buf* parent_buf = bread(ip->dev, parent_block_no);
+
+        uint* parent_indexes = (uint*)parent_buf->data;
+        if (parent_indexes[parent_logic_no] == 0) {
+            parent_indexes[parent_logic_no] = balloc(ip->dev);
+            log_write(parent_buf);
+        }
+        uint block_no = parent_indexes[parent_logic_no];
+
+        brelse(parent_buf);
+        brelse(grandparent_buf);
+
+        return block_no;
     }
 
     panic("bmap: out of range");
@@ -371,26 +407,54 @@ static uint bmap(struct inode* ip, uint bn) {
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
 void itrunc(struct inode* ip) {
-    int i, j;
-    struct buf* bp;
-    uint* a;
+    for (int i = 0; i < NDIRECT; i += 1) {
+        if (!ip->addrs[i]) { continue; }
 
-    for (i = 0; i < NDIRECT; i++) {
-        if (ip->addrs[i]) {
-            bfree(ip->dev, ip->addrs[i]);
-            ip->addrs[i] = 0;
-        }
+        bfree(ip->dev, ip->addrs[i]);
+        ip->addrs[i] = 0;
     }
 
     if (ip->addrs[NDIRECT]) {
-        bp = bread(ip->dev, ip->addrs[NDIRECT]);
-        a = (uint*)bp->data;
-        for (j = 0; j < NINDIRECT; j++) {
-            if (a[j]) bfree(ip->dev, a[j]);
+        struct buf* parent_buf = bread(ip->dev, ip->addrs[NDIRECT]);
+
+        uint* parent_indexes = (uint*)parent_buf->data;
+        for (int i = 0; i < NSINGLELY_INDIRECT; i++) {
+            if (!parent_indexes[i]) { continue; }
+
+            bfree(ip->dev, parent_indexes[i]);
         }
-        brelse(bp);
+
+        brelse(parent_buf);
         bfree(ip->dev, ip->addrs[NDIRECT]);
+
         ip->addrs[NDIRECT] = 0;
+    }
+
+    if (ip->addrs[NDIRECT + 1]) {
+        struct buf* grandparent_buf = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+
+        uint* grandparent_indexes = (uint*)grandparent_buf->data;
+        for (int i = 0; i < NSINGLELY_INDIRECT; i += 1) {
+            if (!grandparent_indexes[i]) { continue; }
+
+            uint parent_block_no = grandparent_indexes[i];
+            struct buf* parent_buf = bread(ip->dev, parent_block_no);
+
+            uint* parent_indexes = (uint*)parent_buf->data;
+            for (int j = 0; j < NSINGLELY_INDIRECT; j += 1) {
+                if (!parent_indexes[j]) { continue; }
+
+                bfree(ip->dev, parent_indexes[j]);
+            }
+
+            brelse(parent_buf);
+            bfree(ip->dev, parent_block_no);
+        }
+
+        brelse(grandparent_buf);
+        bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+
+        ip->addrs[NDIRECT + 1] = 0;
     }
 
     ip->size = 0;
